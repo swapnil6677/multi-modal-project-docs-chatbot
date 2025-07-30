@@ -1,0 +1,33 @@
+# Simplified requirements to avoid conflicts
+# Flask and web framework
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Bcrypt==1.0.1
+
+# Database
+SQLAlchemy==2.0.21
+
+# LangChain - using compatible versions without conflicts
+langchain
+langchain-google-genai
+langchain-pinecone
+langchain-community
+
+# Vector database  
+pinecone-client
+
+# Google AI
+google-generativeai
+
+# PDF processing
+PyPDF2
+
+# Utilities
+python-dotenv
+loguru
+
+# Text processing
+rank-bm25
+
+# Development tools
+watchdog

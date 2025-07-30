@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Document Chatbot - Home{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="text-center mb-5">
+            <h1 class="display-4 text-primary">
+                <i class="fas fa-robot"></i> Document Chatbot
+            </h1>
+            <p class="lead">AI-powered chatbot for your project documents with advanced RAG capabilities</p>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <i class="fas fa-users fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">User Management</h5>
+                        <p class="card-text">Secure user authentication and project isolation</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <i class="fas fa-folder-open fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">Project Organization</h5>
+                        <p class="card-text">Organize documents by projects with isolated knowledge bases</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card h-100 text-center">
+                    <div class="card-body">
+                        <i class="fas fa-comments fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Smart Q&A</h5>
+                        <p class="card-text">Ask questions about your documents using advanced AI</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5">
+            {% if not session.user_id %}
+                <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg me-3">
+                    <i class="fas fa-user-plus"></i> Get Started
+                </a>
+                <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-lg">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </a>
+            {% else %}
+                <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-tachometer-alt"></i> Go to Dashboard
+                </a>
+            {% endif %}
+        </div>
+
+        <div class="mt-5">
+            <h3 class="text-center mb-4">How It Works</h3>
+            <div class="row g-4">
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                            <span class="fw-bold">1</span>
+                        </div>
+                        <h6 class="mt-2">Create Account</h6>
+                        <p class="text-muted small">Register and login to get started</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="bg-success text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                            <span class="fw-bold">2</span>
+                        </div>
+                        <h6 class="mt-2">Create Project</h6>
+                        <p class="text-muted small">Organize your documents by project</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="bg-info text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                            <span class="fw-bold">3</span>
+                        </div>
+                        <h6 class="mt-2">Upload PDFs</h6>
+                        <p class="text-muted small">Add your PDF documents to the project</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="bg-warning text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+                            <span class="fw-bold">4</span>
+                        </div>
+                        <h6 class="mt-2">Ask Questions</h6>
+                        <p class="text-muted small">Get AI-powered answers from your documents</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if not session.user_id %}
+        <div class="mt-5 p-4 bg-light rounded">
+            <h4>Demo Users Available</h4>
+            <p>Try the application with these pre-created users:</p>
+            <div class="row">
+                <div class="col-md-6">
+                    <ul class="list-unstyled">
+                        <li><strong>admin</strong> / admin123</li>
+                        <li><strong>john_doe</strong> / password123</li>
+                        <li><strong>jane_smith</strong> / password123</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <ul class="list-unstyled">
+                        <li><strong>bob_wilson</strong> / password123</li>
+                        <li><strong>alice_brown</strong> / password123</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
