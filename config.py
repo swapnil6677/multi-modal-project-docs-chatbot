@@ -12,7 +12,7 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     
     # Database settings
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///instance/chatbot.db'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "chatbot.db")}'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # JWT settings
@@ -21,7 +21,7 @@ class Config:
     
     # File upload settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-    UPLOAD_FOLDER = 'uploads'
+    UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     
     # API Keys
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
@@ -39,7 +39,9 @@ class Config:
     CHUNK_SIZE = int(os.environ.get('CHUNK_SIZE') or '1000')
     CHUNK_OVERLAP = int(os.environ.get('CHUNK_OVERLAP') or '200')
     EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL') or 'models/embedding-001'
-    LLM_MODEL = os.environ.get('LLM_MODEL') or 'gemini-2.5-flash'
+    LLM_MODEL = os.environ.get('LLM_MODEL') or 'gemini-1.5-flash'
+    TEMPERATURE = float(os.environ.get('TEMPERATURE') or '0.7')
+    EMBEDDING_DIMENSION = 768
     
     @staticmethod
     def init_app(app):
