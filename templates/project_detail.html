@@ -15,8 +15,7 @@
                 <p class="card-text">{{ project.description or 'No description' }}</p>
                 <small class="text-muted">
                     <i class="fas fa-calendar"></i> Created: {{ project.created_at.strftime('%Y-%m-%d') }}<br>
-                    <i class="fas fa-file-pdf"></i> Documents: {{ project.documents|length }}<br>
-                    <i class="fas fa-comments"></i> Chat History: {{ project.chat_history|length }}
+                    <i class="fas fa-file-pdf"></i> Documents: {{ project.documents|length }}
                 </small>
             </div>
         </div>
@@ -50,7 +49,7 @@
         {% if project.documents %}
         <div class="card">
             <div class="card-header">
-                <h5><i class="fas fa-file-pdf"></i> Documents</h5>
+                <h5><i class="fas fa-file-pdf"></i> Documents ({{ project.documents|length }})</h5>
             </div>
             <div class="card-body">
                 {% for doc in project.documents %}
@@ -72,43 +71,66 @@
             </div>
             <div class="card-body d-flex flex-column">
                 <!-- Chat History -->
-                <div id="chatHistory" class="flex-grow-1 overflow-auto mb-3" style="max-height: 400px;">
-                    {% if project.chat_history %}
-                        {% for chat in project.chat_history %}
-                        <div class="chat-message">
-                            <div class="question">
-                                <strong><i class="fas fa-user"></i> You:</strong>
-                                {{ chat.question }}
+                <div id="chatHistory" class="flex-grow-1 overflow-auto mb-3" style="max-height: 500px; padding: 10px;">
+                    {% if chat_history %}
+                        {% for chat in chat_history %}
+                        <!-- User Question -->
+                        <div class="message-container user-message mb-3">
+                            <div class="message-bubble">
+                                <div class="message-header">
+                                    <strong><i class="fas fa-user"></i> You</strong>
+                                    <small class="text-muted">{{ chat.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </div>
+                                <div class="message-content">{{ chat.question }}</div>
                             </div>
-                            <div class="answer">
-                                <strong><i class="fas fa-robot"></i> AI:</strong>
-                                {{ chat.answer }}
+                        </div>
+                        
+                        <!-- AI Response -->
+                        <div class="message-container ai-message mb-4">
+                            <div class="message-bubble">
+                                <div class="message-header">
+                                    <strong><i class="fas fa-robot"></i> AI Assistant</strong>
+                                    <small class="text-muted">{{ chat.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </div>
+                                <div class="ai-response" data-content="{{ chat.answer }}" data-chat-id="{{ chat.id }}">
+                                    <!-- Content will be formatted by JavaScript -->
+                                </div>
                             </div>
-                            <small class="text-muted">{{ chat.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
                         </div>
                         {% endfor %}
                     {% else %}
-                        <div class="text-center text-muted py-4">
-                            <i class="fas fa-comments fa-3x mb-3"></i>
-                            <p>No chat history yet. Upload documents and ask your first question!</p>
+                        <div class="text-center text-muted py-5">
+                            <div class="empty-state">
+                                <i class="fas fa-comments fa-4x mb-3 opacity-50"></i>
+                                <h5>Start a conversation</h5>
+                                <p class="mb-0">Upload documents and ask your first question to get started!</p>
+                            </div>
                         </div>
                     {% endif %}
                 </div>
 
                 <!-- Question Input -->
-                <div class="border-top pt-3">
+                <div class="chat-input-container">
                     <form id="questionForm">
                         <div class="input-group">
-                            <input type="text" class="form-control" id="questionInput" 
+                            <input type="text" class="form-control form-control-lg" id="questionInput" 
                                    placeholder="Ask a question about your documents..." 
+                                   style="border-right: none; box-shadow: none;"
                                    {% if not project.documents %}disabled{% endif %}>
-                            <button type="submit" class="btn btn-primary" id="askBtn"
+                            <button type="submit" class="btn btn-primary btn-lg" id="askBtn"
+                                    style="border-left: none; padding-left: 20px; padding-right: 20px;"
                                     {% if not project.documents %}disabled{% endif %}>
-                                <i class="fas fa-paper-plane"></i> Ask
+                                <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
                         {% if not project.documents %}
-                        <small class="text-muted">Upload documents first to start asking questions</small>
+                        <small class="text-muted d-block mt-2">
+                            <i class="fas fa-info-circle"></i> Upload documents first to start asking questions
+                        </small>
+                        {% else %}
+                        <small class="text-muted d-block mt-2">
+                            <i class="fas fa-lightbulb"></i> Ask anything about your uploaded documents
+                        </small>
                         {% endif %}
                     </form>
                 </div>
@@ -118,9 +140,865 @@
 </div>
 {% endblock %}
 
+{% block styles %}
+<style>
+.chat-conversation {
+    border-left: 3px solid #e9ecef;
+    padding-left: 15px;
+    margin-left: 10px;
+}
+
+.avatar-circle {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.message-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.message-header {
+    margin-bottom: 5px;
+}
+
+.message-text {
+    background: #f8f9fa;
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+
+.user-message .message-text {
+    background: #e3f2fd;
+    border-bottom-left-radius: 4px;
+}
+
+.ai-message .message-text {
+    background: #f1f8e9;
+    border-bottom-left-radius: 4px;
+}
+
+.ai-response {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.ai-response h1, .ai-response h2, .ai-response h3 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.ai-response h1 { font-size: 1.25rem; }
+.ai-response h2 { font-size: 1.15rem; }
+.ai-response h3 { font-size: 1.1rem; }
+
+.ai-response p {
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+}
+
+.ai-response ul, .ai-response ol {
+    margin-bottom: 0.75rem;
+    padding-left: 1.5rem;
+}
+
+.ai-response li {
+    margin-bottom: 0.25rem;
+}
+
+.ai-response code {
+    background: rgba(0,0,0,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.9em;
+}
+
+.ai-response blockquote {
+    border-left: 3px solid #ddd;
+    margin: 0.75rem 0;
+    padding-left: 1rem;
+    color: #666;
+    font-style: italic;
+}
+
+.ai-response strong {
+    font-weight: 600;
+}
+
+.ai-response em {
+    font-style: italic;
+}
+
+/* Source References - Circular with Background Color */
+.source-reference {
+    display: inline-block;
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: #ffffff;
+    border: 2px solid #0056b3;
+    padding: 6px;
+    border-radius: 50%;
+    font-size: 0.75em;
+    font-weight: 700;
+    margin: 0 4px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    min-width: 26px;
+    min-height: 26px;
+    width: 26px;
+    height: 26px;
+    text-align: center;
+    line-height: 14px;
+    position: relative;
+    vertical-align: baseline;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3), 
+                0 1px 3px rgba(0, 86, 179, 0.2);
+    backdrop-filter: blur(10px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.source-reference:hover {
+    background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+    border-color: #004085;
+    color: #ffffff;
+    text-decoration: none;
+    transform: translateY(-2px) scale(1.1);
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4), 
+                0 2px 8px rgba(0, 86, 179, 0.3);
+}
+
+.source-reference:active {
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+    background: linear-gradient(135deg, #004085 0%, #002752 100%);
+}
+
+/* Source content background in AI responses */
+.ai-response {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 15px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    position: relative;
+}
+
+.ai-response::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #3498db, #9b59b6, #e74c3c, #f39c12);
+    border-radius: 12px 12px 0 0;
+}
+
+/* Enhanced source highlighting */
+.source-highlight {
+    background: linear-gradient(120deg, #fff3cd 0%, #ffeaa7 100%);
+    padding: 2px 4px;
+    border-radius: 4px;
+    border-left: 3px solid #f39c12;
+    margin: 0 2px;
+    transition: all 0.2s ease;
+}
+
+.source-highlight:hover {
+    background: linear-gradient(120deg, #ffe8a1 0%, #ffd93d 100%);
+    border-left-color: #e67e22;
+}
+
+.source-reference::before {
+    content: "";
+    margin-right: 0;
+}
+
+/* Alternative style - more Copilot-like with superscript appearance */
+.source-reference.superscript-style {
+    background: transparent;
+    color: #106ebe;
+    border: 1px solid #106ebe;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: 700;
+    vertical-align: super;
+    line-height: 1;
+    margin: 0 1px;
+    min-width: 16px;
+}
+
+.source-reference.superscript-style:hover {
+    background: #106ebe;
+    color: white;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Source indicator - shows number of sources available */
+.sources-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 0.8em;
+    color: #6c757d;
+    cursor: default;
+}
+
+.sources-indicator .source-count {
+    font-weight: 600;
+    color: #495057;
+}
+
+.sources-indicator .info-icon {
+    color: #007bff;
+    font-size: 0.9em;
+}
+
+.sources-list {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    border: 1px solid #e9ecef;
+}
+
+.source-content-modal {
+    max-height: none;
+    overflow: visible;
+}
+
+.source-text-content {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    line-height: 1.7;
+    font-size: 0.95em;
+    color: #495057;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.metadata-content {
+    font-size: 0.85em;
+}
+
+.metadata-item {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 3px solid #007bff;
+}
+
+.metadata-item strong {
+    color: #495057;
+    font-weight: 600;
+    font-size: 0.85em;
+    text-transform: capitalize;
+}
+
+/* Enhanced modal styling */
+.modal-xl {
+    max-width: 90%;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-bottom: 2px solid #007bff;
+}
+
+.modal-footer {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-top: 1px solid #dee2e6;
+}
+
+/* Modal enhancements */
+.modal-content {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 1.25rem 1.5rem;
+}
+
+.modal-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.modal-footer {
+    padding: 1rem 1.5rem;
+}
+
+.sources-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e9ecef;
+}
+
+.source-item {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+    transition: all 0.2s;
+}
+
+.source-item:hover {
+    background: #e9ecef;
+    border-color: #007bff;
+}
+
+.source-header {
+    font-weight: 600;
+    color: #007bff;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: between;
+    align-items: center;
+}
+
+.source-score {
+    font-size: 0.8em;
+    color: #6c757d;
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 12px;
+    margin-left: auto;
+}
+
+.source-content {
+    color: #495057;
+    line-height: 1.4;
+}
+
+.source-preview {
+    cursor: pointer;
+}
+
+.source-full {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #dee2e6;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.85em;
+    background: white;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+/* Typing Animation */
+.typing-text {
+    border-right: 2px solid #007bff;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { border-color: #007bff; }
+    51%, 100% { border-color: transparent; }
+}
+
+.empty-state {
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+.thinking-indicator {
+    display: inline-flex;
+    align-items: center;
+    color: #6c757d;
+    font-style: italic;
+}
+
+.typing-dots {
+    display: inline-flex;
+    margin-left: 8px;
+}
+
+.typing-dots span {
+    height: 6px;
+    width: 6px;
+    background: #6c757d;
+    border-radius: 50%;
+    display: inline-block;
+    margin: 0 1px;
+    animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typing {
+    0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+.chat-input-container {
+    background: white;
+    border-top: 1px solid #e9ecef;
+    padding: 15px;
+    border-radius: 0 0 0.375rem 0.375rem;
+}
+
+#chatHistory {
+    background: #fafafa;
+    border-radius: 0.375rem 0.375rem 0 0;
+}
+
+#chatHistory::-webkit-scrollbar {
+    width: 6px;
+}
+
+#chatHistory::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+#chatHistory::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+#chatHistory::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+</style>
+{% endblock %}
+
+<!-- Hidden data for JavaScript access -->
+<script type="application/json" id="chat-sources-data">
+{
+    {% for chat in chat_history %}
+    "{{ chat.id }}": {{ chat.sources|tojson }}{% if not loop.last %},{% endif %}
+    {% endfor %}
+}
+</script>
+
 {% block scripts %}
 <script>
 const projectId = {{ project.id }};
+
+// Markdown-like formatting function with source reference support
+function formatAIResponse(text, sources = [], chatId = null) {
+    if (!text) return '';
+    
+    // Convert markdown to HTML
+    let formatted = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code>$1</code>')
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/^\* (.*$)/gim, '<li>$1</li>')
+        .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
+        .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
+        .replace(/\n\n/g, '<\/p><p>')
+        .replace(/\n/g, '<br>');
+    
+    // Convert source references [Source X] to clickable numbered references
+    formatted = formatted.replace(/\[Source (\d+)\]/g, function(match, num) {
+        const sourceIndex = num - 1;
+        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
+        return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
+    });
+    
+    // Wrap in paragraphs
+    if (!formatted.includes('<h') && !formatted.includes('<li>')) {
+        formatted = '<p>' + formatted + '<\/p>';
+    }
+    
+    // Wrap lists - Fixed regex escaping
+    formatted = formatted.replace(/(<li>.*?<\/li>)/g, '<ul>$1<\/ul>');
+    
+    return formatted;
+}
+
+// Stream text character by character (text only, format at end)
+function streamText(element, htmlContent, speed = 30) {
+    return new Promise((resolve) => {
+        // Extract plain text from HTML for streaming
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        const plainText = tempDiv.textContent || tempDiv.innerText;
+        
+        let i = 0;
+        element.innerHTML = '';
+        element.classList.add('typing-text');
+        
+        function typeChar() {
+            if (i < plainText.length) {
+                // Show progressive plain text with basic formatting
+                const currentText = plainText.substring(0, i + 1);
+                element.innerHTML = '<p>' + currentText.replace(/\n/g, '<br>') + '</p>';
+                i++;
+                setTimeout(typeChar, speed);
+            } else {
+                // Apply full HTML formatting at the end
+                element.innerHTML = htmlContent;
+                element.classList.remove('typing-text');
+                resolve();
+            }
+        }
+        
+        typeChar();
+    });
+}
+
+// Store current sources for modal display
+let currentSources = [];
+// Store all sources by chat ID for persistent access
+let allChatSources = {};
+
+// Initialize sources from chat history on page load
+function initializeChatSources() {
+    // Get sources data from the hidden data element
+    const sourcesData = document.getElementById('chat-sources-data');
+    if (sourcesData) {
+        try {
+            allChatSources = JSON.parse(sourcesData.textContent);
+            console.log('Initialized chat sources:', allChatSources);
+        } catch (e) {
+            console.error('Error parsing chat sources data:', e);
+        }
+    }
+}
+
+// Show source in modal - enhanced to work with persistent chat sources
+function showSourceModal(sourceIndex, chatId = null) {
+    console.log('showSourceModal called with index:', sourceIndex, 'chatId:', chatId);
+    
+    // Determine which sources to use
+    let sourcesToUse = [];
+    
+    if (chatId && allChatSources[chatId]) {
+        // Use sources from specific chat
+        sourcesToUse = allChatSources[chatId];
+        console.log('Using sources from chat', chatId, ':', sourcesToUse);
+    } else if (currentSources && currentSources.length > 0) {
+        // Use current sources (for new messages)
+        sourcesToUse = currentSources;
+        console.log('Using current sources:', sourcesToUse);
+    } else {
+        console.log('No sources available');
+        alert('No sources available. Please ask a new question to load sources.');
+        return;
+    }
+    
+    if (sourceIndex >= sourcesToUse.length || sourceIndex < 0) {
+        alert(`Source ${sourceIndex + 1} not found. Available sources: 1-${sourcesToUse.length}`);
+        return;
+    }
+    
+    const source = sourcesToUse[sourceIndex];
+    console.log('Selected source:', source);
+    
+    const fileName = source.metadata?.file_name || source.metadata?.filename || `Document ${sourceIndex + 1}`;
+    let content = source.page_content || source.content || 'No content available';
+    
+    // Fix content display issues - remove extra spaces between characters
+    content = content.replace(/\s+/g, ' ').trim();
+    
+    // If content still looks garbled (too many single character words), try to clean it
+    const words = content.split(' ');
+    const singleCharWords = words.filter(word => word.length === 1).length;
+    const totalWords = words.length;
+    
+    if (totalWords > 10 && (singleCharWords / totalWords) > 0.3) {
+        // Likely has spacing issues, try to reconstruct
+        content = content.replace(/\s+/g, '');
+        // Add spaces back at logical points (after periods, before capitals, etc.)
+        content = content.replace(/\./g, '. ')
+                        .replace(/([a-z])([A-Z])/g, '$1 $2')
+                        .replace(/([0-9])([A-Z])/g, '$1 $2')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+    }
+    
+    const score = source.score ? (source.score * 100).toFixed(1) + '%' : '';
+    const documentPath = source.metadata?.source || source.metadata?.file_path || null;
+    
+    // Create modal HTML with improved styling and document access
+    const modalHtml = `
+        <div class="modal fade" id="sourceModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-light border-bottom">
+                        <div class="d-flex align-items-center flex-grow-1">
+                            <i class="fas fa-file-text me-2 text-primary"></i>
+                            <div>
+                                <h5 class="modal-title mb-0">Source ${sourceIndex + 1}: ${fileName}</h5>
+                                <small class="text-muted">
+                                    ${documentPath ? `📁 ${documentPath}` : 'Document excerpt'}
+                                    ${score ? ` • ${score} relevance` : ''}
+                                </small>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-0">
+                        <div class="row g-0">
+                            <div class="col-12">
+                                <div class="p-4">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="text-muted mb-0">
+                                            <i class="fas fa-quote-left me-2"></i>Document Content
+                                        </h6>
+                                        ${documentPath ? `
+                                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="openDocument('${documentPath}', '${fileName}')">
+                                                <i class="fas fa-external-link-alt me-1"></i>View Full Document
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <!-- Show text content -->
+                                    <div class="source-text-content">
+                                        ${content}
+                                    </div>
+                                    
+                                    ${source.metadata && Object.keys(source.metadata).length > 0 ? `
+                                        <div class="mt-4">
+                                            <h6 class="text-muted mb-3">
+                                                <i class="fas fa-info-circle me-2"></i>Document Information
+                                            </h6>
+                                            <div class="row">
+                                                ${Object.entries(source.metadata).filter(([key, value]) => key !== 'total_pages').map(([key, value]) => `
+                                                    <div class="col-md-6 mb-2">
+                                                        <div class="metadata-item">
+                                                            <strong>${key.replace(/_/g, ' ').toUpperCase()}:</strong>
+                                                            <span class="text-muted ms-1">${value}</span>
+                                                        </div>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <div class="d-flex justify-content-between w-100 align-items-center">
+                            <small class="text-muted">
+                                <i class="fas fa-lightbulb me-1"></i>
+                                This excerpt was selected as most relevant to your question
+                            </small>
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                                <i class="fas fa-times me-1"></i>Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remove existing modal
+    const existingModal = document.getElementById('sourceModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('sourceModal'));
+    modal.show();
+}
+
+// Function to open the full document in a new window/tab
+function openDocument(documentPath, fileName) {
+    try {
+        // Try to construct a file URL for local documents
+        if (documentPath.startsWith('/') || documentPath.match(/^[A-Za-z]:/)) {
+            // Local file path - create file URL
+            const fileUrl = `file://${documentPath}`;
+            window.open(fileUrl, '_blank');
+        } else if (documentPath.startsWith('http://') || documentPath.startsWith('https://')) {
+            // Web URL - open directly
+            window.open(documentPath, '_blank');
+        } else {
+            // Relative path - try to open via server
+            const serverUrl = `/view-document?path=${encodeURIComponent(documentPath)}`;
+            window.open(serverUrl, '_blank');
+        }
+    } catch (error) {
+        console.error('Error opening document:', error);
+        // Fallback: show an alert with the document path
+        alert(`Document location: ${documentPath}\n\nPlease navigate to this location in your file manager to view the full document.`);
+    }
+}
+
+// Create simplified source list (optional - for reference at bottom)
+function createSourcesList(sources) {
+    if (!sources || sources.length === 0) return '';
+    
+    let sourcesHtml = '<div class="sources-list mt-3"><h6 class="mb-2 text-muted">Sources:</h6><div class="row">';
+    
+    sources.forEach((source, index) => {
+        const fileName = source.metadata?.file_name || `Document ${index + 1}`;
+        sourcesHtml += `
+            <div class="col-md-6 mb-2">
+                <small class="text-muted">
+                    <span class="source-reference-small" data-source-index="${index}" title="Click to view source">
+                        ${index + 1}
+                    </span>
+                    ${fileName}
+                </small>
+            </div>
+        `;
+    });
+    
+    sourcesHtml += '</div></div>';
+    return sourcesHtml;
+}
+
+// Create source references
+function createSourceReferences(sources) {
+    if (!sources || sources.length === 0) return '';
+    
+    let sourcesHtml = '<div class="sources-section"><h6 class="mb-2">Sources:</h6>';
+    
+    sources.forEach((source, index) => {
+        const sourceId = `source-${Date.now()}-${index}`;
+        const fileName = source.metadata?.file_name || `Document ${index + 1}`;
+        const score = source.score ? (source.score * 100).toFixed(1) + '%' : '';
+        const preview = source.page_content?.substring(0, 150) || '';
+        
+        sourcesHtml += `
+            <div class="source-item" id="${sourceId}">
+                <div class="source-header">
+                    <span class="source-name">${fileName}</span>
+                    ${score ? `<span class="source-score">${score} match</span>` : ''}
+                </div>
+                <div class="source-content">
+                    <div class="source-preview" data-source-id="${sourceId}" style="cursor: pointer;">
+                        ${preview}${preview.length >= 150 ? '...' : ''}
+                        ${preview.length >= 150 ? '<small class="text-primary"> (click to expand)</small>' : ''}
+                    </div>
+                    <div class="source-full" id="${sourceId}-full">
+                        ${source.page_content || 'No content available'}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    sourcesHtml += '</div>';
+    return sourcesHtml;
+}
+
+// Toggle source expansion
+function toggleSourceFull(sourceId) {
+    const fullElement = document.getElementById(sourceId + '-full');
+    const previewElement = document.querySelector(`#${sourceId} .source-preview`);
+    
+    if (fullElement.style.display === 'none' || !fullElement.style.display) {
+        fullElement.style.display = 'block';
+        previewElement.innerHTML = previewElement.innerHTML.replace('(click to expand)', '(click to collapse)');
+    } else {
+        fullElement.style.display = 'none';
+        previewElement.innerHTML = previewElement.innerHTML.replace('(click to collapse)', '(click to expand)');
+    }
+}
+
+// Create animated thinking indicator
+function createThinkingIndicator() {
+    return `
+        <div class="thinking-indicator">
+            Thinking
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    `;
+}
+
+// Create chat message element
+function createChatMessage(question, answer = null, isThinking = false) {
+    const timestamp = new Date().toLocaleTimeString('en-US', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false
+    });
+    
+    const answerContent = isThinking ? createThinkingIndicator() : 
+                         (answer ? `<div class="formatted-response">${formatAIResponse(answer)}</div>` : '');
+    
+    return `
+        <div class="chat-conversation mb-4">
+            <!-- User Message -->
+            <div class="user-message mb-3">
+                <div class="d-flex align-items-start">
+                    <div class="user-avatar me-3">
+                        <div class="avatar-circle bg-primary text-white">
+                            <i class="fas fa-user"></i>
+                        </div>
+                    </div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <strong>You</strong>
+                            <small class="text-muted ms-2">${timestamp}</small>
+                        </div>
+                        <div class="message-text">
+                            ${question}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- AI Response -->
+            <div class="ai-message">
+                <div class="d-flex align-items-start">
+                    <div class="ai-avatar me-3">
+                        <div class="avatar-circle bg-success text-white">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                    </div>
+                    <div class="message-content">
+                        <div class="message-header">
+                            <strong>AI Assistant</strong>
+                            <small class="text-muted ms-2">${timestamp}</small>
+                        </div>
+                        <div class="message-text ai-response">
+                            ${answerContent}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
 
 // Upload form handler
 document.getElementById('uploadForm').addEventListener('submit', async function(e) {
@@ -169,7 +1047,7 @@ document.getElementById('uploadForm').addEventListener('submit', async function(
     }
 });
 
-// Question form handler
+// Question form handler with streaming and sources
 document.getElementById('questionForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -184,24 +1062,23 @@ document.getElementById('questionForm').addEventListener('submit', async functio
     const askBtn = document.getElementById('askBtn');
     const chatHistory = document.getElementById('chatHistory');
     
+    // Clear empty state if it exists
+    const emptyState = chatHistory.querySelector('.empty-state');
+    if (emptyState) {
+        emptyState.parentElement.remove();
+    }
+    
     askBtn.disabled = true;
     askBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Thinking...';
     
-    // Add question to chat immediately
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'chat-message';
-    messageDiv.innerHTML = `
-        <div class="question">
-            <strong><i class="fas fa-user"></i> You:</strong>
-            ${question}
-        </div>
-        <div class="answer">
-            <strong><i class="fas fa-robot"></i> AI:</strong>
-            <em>Thinking...</em>
-        </div>
-    `;
-    chatHistory.appendChild(messageDiv);
+    // Add question and thinking indicator to chat
+    const messageElement = document.createElement('div');
+    messageElement.innerHTML = createChatMessage(question, null, true);
+    chatHistory.appendChild(messageElement);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+    
+    // Clear input
+    questionInput.value = '';
     
     try {
         const response = await fetch(`/api/projects/${projectId}/ask`, {
@@ -214,30 +1091,148 @@ document.getElementById('questionForm').addEventListener('submit', async functio
         
         if (response.ok) {
             const result = await response.json();
+            console.log('Raw API response:', result);
             
-            // Update the answer in the last message
-            const answers = messageDiv.querySelectorAll('.answer');
-            const lastAnswer = answers[answers.length - 1];
-            lastAnswer.innerHTML = `
-                <strong><i class="fas fa-robot"></i> AI:</strong>
-                ${result.answer}
-            `;
+            // Get the AI response element
+            const aiResponseElement = messageElement.querySelector('.ai-response');
             
-            questionInput.value = '';
+            // Handle both new structured format and old string format
+            let answerText = '';
+            let sources = [];
+            
+            if (typeof result.answer === 'object' && result.answer.answer) {
+                // New structured format
+                console.log('Using new structured format');
+                answerText = result.answer.answer;
+                sources = result.answer.sources || [];
+                console.log('Extracted sources:', sources);
+            } else if (typeof result.answer === 'string') {
+                // Old string format
+                console.log('Using old string format');
+                answerText = result.answer;
+                sources = result.sources || [];
+            } else {
+                console.log('Unknown response format:', typeof result.answer, result.answer);
+                answerText = 'Sorry, I received an unexpected response format.';
+            }
+            
+            // Create a container for streaming text
+            const streamingContainer = document.createElement('div');
+            streamingContainer.className = 'formatted-response';
+            aiResponseElement.innerHTML = '';
+            aiResponseElement.appendChild(streamingContainer);
+            
+            // Store sources globally for modal access
+            currentSources = sources;
+            console.log('Sources stored for modal access:', sources);
+            
+            // Get the chat ID from the response (if available)
+            const chatId = result.chat_id || ('new_' + Date.now());
+            if (sources && sources.length > 0) {
+                allChatSources[chatId] = sources;
+                // Set the chat ID in the response element for reference
+                aiResponseElement.setAttribute('data-chat-id', chatId);
+            }
+            
+            // Stream the text with source references using the actual chat ID
+            const formattedText = formatAIResponse(answerText, sources, chatId);
+            await streamText(streamingContainer, formattedText, 20);
+            
+            // Add a more informative source indicator showing how many sources are available
+            if (sources && sources.length > 0) {
+                const sourceIndicator = document.createElement('div');
+                sourceIndicator.className = 'sources-indicator';
+                sourceIndicator.innerHTML = `
+                    <i class="fas fa-info-circle info-icon"></i>
+                    <span class="source-count">${sources.length}</span>
+                    source${sources.length > 1 ? 's' : ''} referenced above
+                    <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references to view details</small>
+                `;
+                streamingContainer.appendChild(sourceIndicator);
+            }
+            
+            // Scroll to bottom
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            
         } else {
             const error = await response.json();
-            alert('Error: ' + error.error);
-            messageDiv.remove(); // Remove the pending message
+            // Update with error message
+            const aiResponseElement = messageElement.querySelector('.ai-response');
+            aiResponseElement.innerHTML = `
+                <div class="alert alert-danger mb-0" role="alert">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    Error: ${error.error || 'Something went wrong'}
+                </div>
+            `;
         }
     } catch (error) {
-        alert('Error: ' + error.message);
-        messageDiv.remove(); // Remove the pending message
+        // Update with error message
+        const aiResponseElement = messageElement.querySelector('.ai-response');
+        aiResponseElement.innerHTML = `
+            <div class="alert alert-danger mb-0" role="alert">
+                <i class="fas fa-exclamation-triangle"></i> 
+                Network Error: ${error.message}
+            </div>
+        `;
     } finally {
         askBtn.disabled = false;
         askBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Ask';
     }
 });
 
-// Note: Using session-based authentication instead of JWT tokens
+// Format existing chat history on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize chat sources from database
+    initializeChatSources();
+    
+    // Add click event listeners to all source references and toggles
+    document.addEventListener('click', function(e) {
+        // Check if clicked element or its parent is a source reference
+        const sourceElement = e.target.closest('.source-reference') || 
+                             (e.target.classList.contains('source-reference') ? e.target : null) ||
+                             (e.target.classList.contains('source-reference-small') ? e.target : null);
+        
+        if (sourceElement) {
+            e.preventDefault();
+            const sourceIndex = parseInt(sourceElement.getAttribute('data-source-index'));
+            const chatId = sourceElement.getAttribute('data-chat-id');
+            showSourceModal(sourceIndex, chatId);
+        } else if (e.target.classList.contains('source-preview') || e.target.closest('.source-preview')) {
+            const previewElement = e.target.classList.contains('source-preview') ? e.target : e.target.closest('.source-preview');
+            const sourceId = previewElement.getAttribute('data-source-id');
+            if (sourceId) {
+                toggleSourceFull(sourceId);
+            }
+        }
+    });
+    
+    // Format existing chat responses with proper source references
+    const existingResponses = document.querySelectorAll('.ai-response[data-content]');
+    existingResponses.forEach(response => {
+        const content = response.getAttribute('data-content');
+        const chatId = response.getAttribute('data-chat-id');
+        
+        if (content) {
+            // Get sources for this specific chat if available
+            const chatSources = chatId && allChatSources[chatId] ? allChatSources[chatId] : [];
+            
+            // Format the content and display it directly in the response element
+            response.innerHTML = formatAIResponse(content, chatSources, chatId);
+            
+            // Add source indicator if sources are available
+            if (chatSources && chatSources.length > 0) {
+                const sourceIndicator = document.createElement('div');
+                sourceIndicator.className = 'sources-indicator';
+                sourceIndicator.innerHTML = `
+                    <i class="fas fa-info-circle info-icon"></i>
+                    <span class="source-count">${chatSources.length}</span>
+                    source${chatSources.length > 1 ? 's' : ''} referenced above
+                    <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references to view details</small>
+                `;
+                response.appendChild(sourceIndicator);
+            }
+        }
+    });
+});
 </script>
 {% endblock %}

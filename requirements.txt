@@ -24,10 +24,6 @@ PyPDF2
 
 # Utilities
 python-dotenv
-loguru
 
-# Text processing
-rank-bm25
-
-# Development tools
-watchdog
+# Development tools (optional)
+# watchdog

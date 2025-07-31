@@ -56,22 +56,23 @@ class DocumentProcessor:
             logger.error(f"Error initializing services: {e}")
             raise
     
-    def extract_text_from_pdf(self, pdf_file) -> str:
-        """Extract text from PDF file"""
+    def extract_text_from_pdf(self, pdf_file) -> tuple:
+        """Extract text from PDF file and return text with page count"""
         logger.info(f"Extracting text from PDF: {pdf_file.filename}")
         
         try:
             pdf_file.seek(0)  # Reset file pointer
             reader = PdfReader(pdf_file)
             text = ""
+            page_count = len(reader.pages)
             
             for page_num, page in enumerate(reader.pages):
                 content = page.extract_text() or ""
                 text += content
                 logger.debug(f"Extracted text from page {page_num + 1}")
             
-            logger.info(f"Total text length: {len(text)} characters")
-            return text
+            logger.info(f"Total text length: {len(text)} characters from {page_count} pages")
+            return text, page_count
             
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {e}")
@@ -95,9 +96,9 @@ class DocumentProcessor:
             logger.error(f"Error chunking text: {e}")
             raise
     
-    def store_in_pinecone(self, chunks: List[str], namespace: str):
-        """Store text chunks in Pinecone vector database"""
-        logger.info(f"Storing {len(chunks)} chunks in Pinecone namespace: {namespace}")
+    def store_in_pinecone(self, chunks: List[str], namespace: str, filename: str = None, page_count: int = 0):
+        """Store text chunks in Pinecone vector database with filename and page metadata"""
+        logger.info(f"Storing {len(chunks)} chunks in Pinecone namespace: {namespace} for file: {filename} ({page_count} pages)")
         
         try:
             if not self.pinecone_client or not self.embedding_model:
@@ -129,11 +130,28 @@ class DocumentProcessor:
                 namespace=namespace
             )
             
-            # Convert chunks to documents and store
-            documents = [Document(page_content=chunk) for chunk in chunks]
+            # Convert chunks to documents with metadata
+            documents = []
+            for i, chunk in enumerate(chunks):
+                metadata = {
+                    "text": chunk,
+                    "chunk_index": i,
+                    "total_pages": page_count
+                }
+                if filename:
+                    # Clean filename - remove path and keep just the base name
+                    clean_filename = filename.split('/')[-1].split('\\')[-1]
+                    # Remove .pdf extension for display
+                    if clean_filename.lower().endswith('.pdf'):
+                        clean_filename = clean_filename[:-4]
+                    metadata["file_name"] = clean_filename
+                
+                doc = Document(page_content=chunk, metadata=metadata)
+                documents.append(doc)
+            
             vectorstore.add_documents(documents)
             
-            logger.info(f"Successfully stored {len(documents)} documents in Pinecone")
+            logger.info(f"Successfully stored {len(documents)} documents in Pinecone with metadata")
             
         except Exception as e:
             logger.error(f"Error storing in Pinecone: {e}")
@@ -289,8 +307,8 @@ class QuestionAnswerer:
         
         return qa_chain
     
-    def answer_question(self, question: str, namespace: str) -> str:
-        """Answer a question using RAG on project documents"""
+    def answer_question(self, question: str, namespace: str) -> dict:
+        """Answer a question using direct Pinecone retrieval with Microsoft Copilot-style source references"""
         logger.info(f"Answering question: {question} for namespace: {namespace}")
         
         try:
@@ -300,53 +318,156 @@ class QuestionAnswerer:
             if not namespace:
                 raise ValueError("No namespace provided")
             
-            # Setup Pinecone vectorstore
+            # Use direct Pinecone index access (bypassing LangChain wrapper issues)
             index = self.pinecone_client.Index(self.config.PINECONE_INDEX_NAME)
-            vectorstore = PineconeVectorStore(
-                index=index,
-                embedding=self.embedding_model,
-                namespace=namespace
+            
+            # Verify documents exist first
+            test_vector = self.embedding_model.embed_query("test content")
+            test_result = index.query(
+                vector=test_vector,
+                top_k=1,
+                namespace=namespace,
+                include_metadata=True
             )
-            retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
             
-            # Verify documents exist
-            test_docs = retriever.invoke("test")
-            logger.info(f"Retrieved {len(test_docs)} test documents from namespace: {namespace}")
+            if not test_result.matches:
+                return {
+                    "answer": "No documents found in this project. Please upload some documents first.",
+                    "sources": [],
+                    "streaming": False
+                }
             
-            if not test_docs:
-                return "No documents found in this project. Please upload some documents first."
-            
-            # Decompose question
+            # Decompose question for complex queries
             sub_questions = self._decompose_question(question)
+            logger.info(f"Processing {len(sub_questions)} sub-questions")
             
-            # Answer sub-questions
-            all_answers = []
-            qa_chain = self._get_qa_chain(retriever)
+            all_sources = []
+            used_texts = set()  # Track unique content to avoid duplicates
             
-            for sub_q in sub_questions:
-                logger.debug(f"Processing sub-question: {sub_q}")
+            # Process each sub-question using direct Pinecone search
+            for i, sub_q in enumerate(sub_questions):
+                logger.debug(f"Processing sub-question {i+1}: {sub_q}")
                 
-                try:
-                    result = qa_chain.invoke({"query": sub_q})
-                    answer = result["result"]
-                    all_answers.append(f"**{sub_q}**: {answer}")
-                    logger.debug(f"Answer: {answer}")
+                # Convert sub-question to embedding
+                question_vector = self.embedding_model.embed_query(sub_q)
+                
+                # Search for relevant documents using direct Pinecone query
+                search_results = index.query(
+                    vector=question_vector,
+                    top_k=3,  # Fewer results per sub-question to avoid too much context
+                    namespace=namespace,
+                    include_metadata=True,
+                    include_values=False
+                )
+                
+                # Extract unique sources (avoid duplicates by content)
+                for match in search_results.matches:
+                    doc_text = match.metadata.get('text', '') if match.metadata else ''
+                    if not doc_text:
+                        continue
+                        
+                    # Check if this content is already included
+                    if doc_text in used_texts:
+                        continue
+                        
+                    used_texts.add(doc_text)
                     
-                except Exception as e:
-                    logger.error(f"Error answering sub-question: {e}")
-                    all_answers.append(f"**{sub_q}**: Unable to answer this question.")
+                    # Get clean filename from metadata
+                    file_name = match.metadata.get('file_name') if match.metadata else None
+                    total_pages = match.metadata.get('total_pages', 1) if match.metadata else 1
+                    
+                    if not file_name:
+                        file_name = f'Document {len(all_sources) + 1}'
+                    
+                    # Ensure we have a reasonable source limit
+                    if len(all_sources) >= 5:  # Limit to 5 sources max
+                        break
+                        
+                    all_sources.append({
+                        "page_content": doc_text,
+                        "metadata": {
+                            "file_name": file_name,
+                            "total_pages": total_pages,
+                            "sub_question": sub_q if len(sub_questions) > 1 else None
+                        },
+                        "score": match.score
+                    })
+                
+                # Break if we have enough sources
+                if len(all_sources) >= 5:
+                    break
             
-            # Combine answers if multiple sub-questions
-            if len(all_answers) > 1:
-                summarizer = load_summarize_chain(self.llm, chain_type="stuff")
-                documents = [Document(page_content=text) for text in all_answers]
-                final_answer = summarizer.invoke({"input_documents": documents})["output_text"]
+            if not all_sources:
+                return {
+                    "answer": "No relevant document content found for your question.",
+                    "sources": [],
+                    "streaming": False
+                }
+            
+            logger.info(f"Found {len(all_sources)} unique sources for the question")
+            
+            # Create context for the prompt with source references
+            context_parts = []
+            for i, source in enumerate(all_sources):
+                context_parts.append(f"[Source {i+1}] {source['page_content']}")
+            
+            context_text = "\n\n".join(context_parts)
+            
+            # Create comprehensive prompt for complex question handling
+            if len(sub_questions) > 1:
+                sub_q_text = "\n".join([f"- {sq}" for sq in sub_questions])
+                prompt = f"""Based on the following document excerpts with source references, please answer the complex question by addressing its components. Use the source references [Source X] in your answer to cite where information comes from.
+
+CONTEXT DOCUMENTS WITH SOURCE REFERENCES:
+{context_text}
+
+MAIN QUESTION: {question}
+
+SUB-COMPONENTS TO ADDRESS:
+{sub_q_text}
+
+INSTRUCTIONS:
+- Use the source references [Source 1], [Source 2], etc. to cite information in your answer
+- Address each component of the question comprehensively
+- Synthesize information from multiple sources when relevant
+- If any component cannot be answered from the context, clearly state what information is missing
+- Provide specific details and examples when available
+- Structure your response to address the full complexity of the question
+
+COMPREHENSIVE ANSWER WITH SOURCE REFERENCES:"""
             else:
-                final_answer = all_answers[0].split("**: ", 1)[1] if all_answers else "No answer generated."
+                prompt = f"""Based on the following document excerpts with source references, please answer the question accurately and comprehensively. Use the source references [Source X] in your answer to cite where information comes from.
+
+CONTEXT DOCUMENTS WITH SOURCE REFERENCES:
+{context_text}
+
+QUESTION: {question}
+
+INSTRUCTIONS:
+- Use the source references [Source 1], [Source 2], etc. to cite information in your answer
+- If the answer is not fully available in the context, state what information is missing
+- Provide specific details and examples when available
+- Keep the response focused and relevant to the question
+- If multiple documents contain relevant information, synthesize them coherently
+
+ANSWER WITH SOURCE REFERENCES:"""
+
+            # Get answer from LLM using direct generation
+            response = self._safe_generate(prompt)
+            answer = response.content.strip()
             
             logger.info(f"Successfully answered question for namespace: {namespace}")
-            return final_answer
+            
+            return {
+                "answer": answer,
+                "sources": all_sources,
+                "streaming": False
+            }
             
         except Exception as e:
             logger.error(f"Error answering question: {e}")
-            raise
+            return {
+                "answer": f"Error processing question: {str(e)}",
+                "sources": [],
+                "streaming": False
+            }

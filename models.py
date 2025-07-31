@@ -81,6 +81,7 @@ class Document(db.Model):
     file_size = db.Column(db.Integer)  # in bytes
     file_hash = db.Column(db.String(64))  # SHA256 hash for duplicate detection
     chunk_count = db.Column(db.Integer, default=0)
+    page_count = db.Column(db.Integer, default=0)  # Total number of pages
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Foreign keys
@@ -97,6 +98,7 @@ class Document(db.Model):
             'file_size': self.file_size,
             'file_hash': self.file_hash,
             'chunk_count': self.chunk_count,
+            'page_count': self.page_count,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'project_id': self.project_id
         }
@@ -108,6 +110,7 @@ class ChatHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question = db.Column(db.Text, nullable=False)
     answer = db.Column(db.Text, nullable=False)
+    sources = db.Column(db.JSON)  # Store source data as JSON
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     response_time = db.Column(db.Float)  # Response time in seconds
     
@@ -122,6 +125,7 @@ class ChatHistory(db.Model):
             'id': self.id,
             'question': self.question,
             'answer': self.answer,
+            'sources': self.sources,  # Include sources in dictionary representation
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'response_time': self.response_time,
             'project_id': self.project_id
