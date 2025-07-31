@@ -3,8 +3,14 @@ Main application entry point
 """
 
 import logging
+import os
+from dotenv import load_dotenv
 from app import create_app
 from app.routes import initialize_processors
+
+# Load environment variables from .env file
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path)
 
 # Configure logging
 logging.basicConfig(
@@ -25,7 +31,7 @@ def main():
         app.logger.info("Application started successfully")
         
         # Run the application
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        app.run(debug=True, host='0.0.0.0', port=5001)
         
     except Exception as e:
         logging.error(f"Failed to start application: {e}")
