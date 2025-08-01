@@ -118,6 +118,7 @@ function showSourceModal(sourceIndex, chatId = null) {
     
     const fileName = source.metadata?.file_name || source.metadata?.filename || `Document ${sourceIndex + 1}`;
     let content = source.page_content || source.content || 'No content available';
+    const pageNumber = source.metadata?.page_number || null;
     
     // Fix content display issues - remove extra spaces between characters
     content = content.replace(/\s+/g, ' ').trim();
@@ -153,6 +154,7 @@ function showSourceModal(sourceIndex, chatId = null) {
                                 <h5 class="modal-title mb-0">Source ${sourceIndex + 1}: ${fileName}</h5>
                                 <small class="text-muted">
                                     ${documentPath ? `📁 ${documentPath}` : 'Document excerpt'}
+                                    ${pageNumber ? ` • Page ${pageNumber}` : ''}
                                     ${score ? ` • ${score} relevance` : ''}
                                 </small>
                             </div>
@@ -165,13 +167,16 @@ function showSourceModal(sourceIndex, chatId = null) {
                                 <div class="p-4">
                                     <div class="d-flex justify-content-between align-items-center mb-3">
                                         <h6 class="text-muted mb-0">
-                                            <i class="fas fa-quote-left me-2"></i>Document Content
+                                            <i class="fas fa-quote-left me-2"></i>Document Excerpt
                                         </h6>
-                                        ${documentPath ? `
-                                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="openDocument('${documentPath}', '${fileName}')">
-                                                <i class="fas fa-external-link-alt me-1"></i>View Full Document
-                                            </button>
-                                        ` : ''}
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="openDocument('${documentPath}', '${fileName}', ${pageNumber})">
+                                            <i class="fas fa-external-link-alt me-1"></i>Open ${pageNumber ? `at Page ${pageNumber}` : 'Full Document'}
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="alert alert-info d-flex align-items-center mb-3">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        <small>This is a relevant excerpt from your document${pageNumber ? ` (Page ${pageNumber})` : ''}. Click "Open ${pageNumber ? `at Page ${pageNumber}` : 'Full Document'}" above to view the ${pageNumber ? 'specific page in the' : 'complete'} file.</small>
                                     </div>
                                     
                                     <!-- Show text content -->
@@ -231,25 +236,29 @@ function showSourceModal(sourceIndex, chatId = null) {
 }
 
 // Function to open the full document in a new window/tab
-function openDocument(documentPath, fileName) {
+function openDocument(documentPath, fileName, pageNumber = null) {
     try {
-        // Try to construct a file URL for local documents
-        if (documentPath.startsWith('/') || documentPath.match(/^[A-Za-z]:/)) {
-            // Local file path - create file URL
-            const fileUrl = `file://${documentPath}`;
-            window.open(fileUrl, '_blank');
-        } else if (documentPath.startsWith('http://') || documentPath.startsWith('https://')) {
-            // Web URL - open directly
-            window.open(documentPath, '_blank');
+        let serverUrl;
+        
+        // If page number is provided, use the page-specific route
+        if (pageNumber && pageNumber > 0) {
+            serverUrl = `/view-document-page?filename=${encodeURIComponent(fileName)}&project_id=${projectId}&page=${pageNumber}`;
         } else {
-            // Relative path - try to open via server
-            const serverUrl = `/view-document?path=${encodeURIComponent(documentPath)}`;
-            window.open(serverUrl, '_blank');
+            // Use the regular document viewing route
+            serverUrl = `/view-document?filename=${encodeURIComponent(fileName)}&project_id=${projectId}`;
         }
+        
+        // Open in new tab
+        const newWindow = window.open(serverUrl, '_blank');
+        
+        if (!newWindow) {
+            // Popup blocked, show fallback
+            alert('Please allow popups to view the document, or check your browser settings.');
+        }
+        
     } catch (error) {
         console.error('Error opening document:', error);
-        // Fallback: show an alert with the document path
-        alert(`Document location: ${documentPath}\n\nPlease navigate to this location in your file manager to view the full document.`);
+        alert('Unable to open document. Please try again.');
     }
 }
 

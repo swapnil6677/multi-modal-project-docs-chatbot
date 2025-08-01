@@ -273,8 +273,11 @@ def upload_documents(project_id):
                 logger.info(f"Starting processing of {filename} for project {project_id}")
                 
                 try:
+                    # Save file to disk first
+                    file_path = file_processor.save_file(file)
+                    
                     # Process document (PDF or Image)
-                    text, page_count = file_processor.process_file(file)
+                    text, page_count, page_mapping = file_processor.process_file(file)
                     chunks = embedding_processor.get_chunks(text)
                     
                     logger.info(f"Extracted text from {filename}: {len(text)} characters, {page_count} pages")
@@ -300,12 +303,13 @@ def upload_documents(project_id):
                     
                     logger.info(f"Storing {filename} in Pinecone...")
                     
-                    # Store in Pinecone
+                    # Store in Pinecone with page mapping
                     pinecone_helper.store_vectors(
                         chunks=chunks, 
                         namespace=project.namespace, 
                         filename=filename,
-                        page_count=page_count
+                        page_count=page_count,
+                        page_mapping=page_mapping
                     )
                     
                     logger.info(f"Successfully stored {filename} in Pinecone")
@@ -516,3 +520,95 @@ def delete_project(project_id):
         db.session.rollback()
         logger.error(f"Error deleting project: {e}")
         return jsonify({'error': f'Error deleting project: {str(e)}'}), 500
+
+@main_bp.route('/view-document')
+@login_required
+def view_document():
+    """Serve documents for viewing"""
+    import os
+    from flask import send_file, abort
+    
+    try:
+        filename = request.args.get('filename')
+        project_id = request.args.get('project_id')
+        
+        if not filename:
+            abort(400)
+        
+        # Security check: ensure user owns the project
+        if project_id:
+            project = Project.query.filter_by(
+                id=project_id, 
+                user_id=session['user_id']
+            ).first()
+            if not project:
+                abort(403)
+        
+        # Construct file path (assuming files are stored in uploads directory)
+        file_path = os.path.join('uploads', secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            abort(404)
+        
+        # Determine mimetype based on file extension
+        if filename.lower().endswith('.pdf'):
+            mimetype = 'application/pdf'
+        elif filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            mimetype = 'image/' + filename.split('.')[-1].lower()
+            if mimetype == 'image/jpg':
+                mimetype = 'image/jpeg'
+        else:
+            mimetype = 'application/octet-stream'
+        
+        return send_file(file_path, mimetype=mimetype, as_attachment=False)
+        
+    except Exception as e:
+        logger.error(f"Error serving document: {e}")
+        abort(500)
+
+@main_bp.route('/view-document-page')
+@login_required
+def view_document_page():
+    """Serve documents for viewing with page number for PDFs"""
+    import os
+    from flask import send_file, abort, redirect, url_for
+    
+    try:
+        filename = request.args.get('filename')
+        project_id = request.args.get('project_id')
+        page_number = request.args.get('page', '1')
+        
+        if not filename:
+            abort(400)
+        
+        # Security check: ensure user owns the project
+        if project_id:
+            project = Project.query.filter_by(
+                id=project_id, 
+                user_id=session['user_id']
+            ).first()
+            if not project:
+                abort(403)
+        
+        # Construct file path (assuming files are stored in uploads directory)
+        file_path = os.path.join('uploads', secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            abort(404)
+        
+        # For PDFs, we'll serve with page fragment identifier
+        if filename.lower().endswith('.pdf'):
+            # Create a temporary redirect URL with page fragment
+            # Most browsers support #page=N for PDFs
+            base_url = url_for('main.view_document', filename=filename, project_id=project_id)
+            return redirect(f"{base_url}#page={page_number}")
+        else:
+            # For images, just serve the file normally
+            mimetype = 'image/' + filename.split('.')[-1].lower()
+            if mimetype == 'image/jpg':
+                mimetype = 'image/jpeg'
+            return send_file(file_path, mimetype=mimetype, as_attachment=False)
+        
+    except Exception as e:
+        logger.error(f"Error serving document with page: {e}")
+        abort(500)

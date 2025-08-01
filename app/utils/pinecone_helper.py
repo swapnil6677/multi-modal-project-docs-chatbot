@@ -67,8 +67,8 @@ class PineconeHelper:
             logger.error(f"Error ensuring index exists: {e}")
             raise
     
-    def store_vectors(self, chunks: List[str], namespace: str, filename: str = None, page_count: int = 0):
-        """Store text chunks as vectors in Pinecone"""
+    def store_vectors(self, chunks: List[str], namespace: str, filename: str = None, page_count: int = 0, page_mapping: List[dict] = None):
+        """Store text chunks as vectors in Pinecone with page information"""
         logger.info(f"Storing {len(chunks)} vectors in namespace: {namespace}")
         
         try:
@@ -77,17 +77,34 @@ class PineconeHelper:
             
             # Create documents with metadata
             documents = []
+            current_pos = 0
+            
             for i, chunk in enumerate(chunks):
                 metadata = {
                     'chunk_id': i,
                     'total_chunks': len(chunks),
-                    'namespace': namespace
+                    'namespace': namespace,
+                    'text': chunk  # Store the actual text for search
                 }
                 
                 if filename:
                     metadata['filename'] = filename
                 if page_count:
                     metadata['page_count'] = page_count
+                
+                # Determine page number for this chunk
+                if page_mapping:
+                    # Find which page this chunk belongs to based on text position
+                    chunk_page = 1
+                    for page_info in page_mapping:
+                        if page_info['start_pos'] <= current_pos < page_info['end_pos']:
+                            chunk_page = page_info['page_number']
+                            break
+                    metadata['page_number'] = chunk_page
+                else:
+                    metadata['page_number'] = 1
+                
+                current_pos += len(chunk)
                 
                 doc = Document(page_content=chunk, metadata=metadata)
                 documents.append(doc)

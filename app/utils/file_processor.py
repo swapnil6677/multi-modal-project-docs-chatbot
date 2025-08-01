@@ -5,7 +5,7 @@ File processing utilities for document handling
 import os
 import hashlib
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from PyPDF2 import PdfReader
 from PIL import Image
 import google.generativeai as genai
@@ -45,8 +45,8 @@ class FileProcessor:
         else:
             raise ValueError("Invalid file type or no file provided")
     
-    def extract_text_from_pdf(self, pdf_file: FileStorage) -> Tuple[str, int]:
-        """Extract text from PDF file and return text with page count"""
+    def extract_text_from_pdf(self, pdf_file: FileStorage) -> Tuple[str, int, List[dict]]:
+        """Extract text from PDF file and return text with page count and page mapping"""
         logger.info(f"Extracting text from PDF: {pdf_file.filename}")
         
         try:
@@ -54,21 +54,34 @@ class FileProcessor:
             reader = PdfReader(pdf_file)
             text = ""
             page_count = len(reader.pages)
+            page_mapping = []  # Track text positions and their page numbers
             
             for page_num, page in enumerate(reader.pages):
                 content = page.extract_text() or ""
+                start_pos = len(text)
                 text += content
+                end_pos = len(text)
+                
+                # Store page mapping for this page
+                if content.strip():  # Only store if page has content
+                    page_mapping.append({
+                        'page_number': page_num + 1,
+                        'start_pos': start_pos,
+                        'end_pos': end_pos,
+                        'content': content
+                    })
+                
                 logger.debug(f"Extracted text from page {page_num + 1}")
             
             logger.info(f"Total text length: {len(text)} characters from {page_count} pages")
-            return text, page_count
+            return text, page_count, page_mapping
             
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {e}")
             raise
     
-    def extract_text_from_image(self, image_file: FileStorage) -> Tuple[str, int]:
-        """Extract text from image file using Google Gemini Vision and return text with page count (1)"""
+    def extract_text_from_image(self, image_file: FileStorage) -> Tuple[str, int, List[dict]]:
+        """Extract text from image file using Google Gemini Vision and return text with page count (1) and page mapping"""
         logger.info(f"Extracting text from image: {image_file.filename}")
         
         try:
@@ -90,15 +103,26 @@ class FileProcessor:
             response = model.generate_content([prompt, image])
             text = response.text if response.text else "No text found in image."
             
+            # Create page mapping for image (single "page")
+            page_mapping = [{
+                'page_number': 1,
+                'start_pos': 0,
+                'end_pos': len(text),
+                'content': text
+            }] if text.strip() else []
+            
             logger.info(f"Extracted text from image: {len(text)} characters")
-            return text, 1  # Images are considered as 1 "page"
+            return text, 1, page_mapping  # Images are considered as 1 "page"
             
         except Exception as e:
             logger.error(f"Error extracting text from image: {e}")
             raise
     
-    def process_file(self, file: FileStorage) -> Tuple[str, int]:
-        """Process file based on its type and return text with page count"""
+    def process_file(self, file: FileStorage) -> Tuple[str, int, List[dict]]:
+        """Process uploaded file and extract text with page mapping"""
+        if not file:
+            raise ValueError("No file provided")
+        
         filename = file.filename.lower()
         
         if filename.endswith('.pdf'):
@@ -107,6 +131,13 @@ class FileProcessor:
             return self.extract_text_from_image(file)
         else:
             raise ValueError(f"Unsupported file type: {filename}")
+    
+    def get_page_for_chunk_position(self, position: int, page_mapping: List[dict]) -> int:
+        """Get the page number for a given text position"""
+        for page_info in page_mapping:
+            if page_info['start_pos'] <= position < page_info['end_pos']:
+                return page_info['page_number']
+        return 1  # Default to page 1 if not found
     
     def calculate_file_hash(self, text: str) -> str:
         """Calculate MD5 hash of text content for deduplication"""
