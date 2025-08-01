@@ -268,13 +268,13 @@ def upload_documents(project_id):
         processed_files = []
         
         for file in files:
-            if file and file.filename.lower().endswith('.pdf'):
+            if file and file.filename.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png')):
                 filename = secure_filename(file.filename)
                 logger.info(f"Starting processing of {filename} for project {project_id}")
                 
                 try:
-                    # Process document
-                    text, page_count = file_processor.extract_text_from_pdf(file)
+                    # Process document (PDF or Image)
+                    text, page_count = file_processor.process_file(file)
                     chunks = embedding_processor.get_chunks(text)
                     
                     logger.info(f"Extracted text from {filename}: {len(text)} characters, {page_count} pages")
@@ -343,7 +343,7 @@ def upload_documents(project_id):
                 processed_files.append({
                     'filename': file.filename if file else 'Unknown',
                     'status': 'error',
-                    'error': 'Invalid file type. Only PDF files are supported.'
+                    'error': 'Invalid file type. Only PDF, JPG, JPEG, and PNG files are supported.'
                 })
         
         db.session.commit()

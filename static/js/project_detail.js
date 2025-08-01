@@ -1,5 +1,5 @@
 // Project ID will be set by the template
-let projectId = window.projectId;
+let projectId;
 
 // Store current sources for modal display
 let currentSources = [];
@@ -9,8 +9,6 @@ let allChatSources = {};
 // Markdown-like formatting function with source reference support
 function formatAIResponse(text, sources = [], chatId = null) {
     if (!text) return '';
-    
-    console.log('formatAIResponse called with:', { text: text.substring(0, 200), sourcesCount: sources.length, chatId });
     
     // Convert markdown to HTML
     let formatted = text
@@ -26,51 +24,12 @@ function formatAIResponse(text, sources = [], chatId = null) {
         .replace(/\n\n/g, '<\/p><p>')
         .replace(/\n/g, '<br>');
     
-    // Convert source references - handle multiple formats
-    
-    // Format 1: [Source X] -> clickable reference  
+    // Convert source references [Source X] to clickable numbered references
     formatted = formatted.replace(/\[Source (\d+)\]/g, function(match, num) {
-        const sourceIndex = parseInt(num) - 1;
+        const sourceIndex = num - 1;
         const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
         return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
     });
-    
-    // Format 2: [Source X, Y, Z] -> multiple clickable references
-    formatted = formatted.replace(/\[Source ([\d,\s]+)\]/g, function(match, nums) {
-        const numbers = nums.split(',').map(n => n.trim()).filter(n => n && !isNaN(n));
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        const references = numbers.map(num => {
-            const sourceIndex = parseInt(num) - 1;
-            return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-        });
-        return references.join(', ');
-    });
-    
-    // Format 3: [X] where X is just a number -> clickable reference
-    formatted = formatted.replace(/\[(\d+)\]/g, function(match, num) {
-        const sourceIndex = parseInt(num) - 1;
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-    });
-    
-    // Format 4: [X, Y, Z] -> multiple clickable references
-    formatted = formatted.replace(/\[([\d,\s]+)\]/g, function(match, nums) {
-        // Only process if it contains only numbers, commas, and spaces
-        if (!/^[\d,\s]+$/.test(nums)) return match;
-        
-        const numbers = nums.split(',').map(n => n.trim()).filter(n => n && !isNaN(n));
-        if (numbers.length === 0) return match;
-        
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        const references = numbers.map(num => {
-            const sourceIndex = parseInt(num) - 1;
-            return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-        });
-        return references.join(', ');
-    });
-    
-    console.log('After source reference processing:', formatted.substring(0, 500));
-    console.log('Number of source-reference spans created:', (formatted.match(/source-reference/g) || []).length);
     
     // Wrap in paragraphs
     if (!formatted.includes('<h') && !formatted.includes('<li>')) {
@@ -518,33 +477,18 @@ function setupUploadForm() {
         uploadProgress.style.display = 'block';
         
         try {
-            console.log('Project ID:', projectId);
-            console.log('Upload URL:', `/api/projects/${projectId}/upload`);
-            
             const response = await fetch(`/api/projects/${projectId}/upload`, {
                 method: 'POST',
                 body: formData
             });
-            
-            console.log('Response status:', response.status);
-            console.log('Response headers:', response.headers);
             
             if (response.ok) {
                 const result = await response.json();
                 alert('Files uploaded successfully!');
                 location.reload(); // Refresh page to show new documents
             } else {
-                // Try to parse as JSON, fallback to text
-                let errorMessage;
-                try {
-                    const error = await response.json();
-                    errorMessage = error.error || error.message || 'Unknown error';
-                } catch (e) {
-                    const errorText = await response.text();
-                    console.log('Response text:', errorText);
-                    errorMessage = 'Server returned non-JSON response';
-                }
-                alert('Upload failed: ' + errorMessage);
+                const error = await response.json();
+                alert('Upload failed: ' + error.message);
             }
         } catch (error) {
             alert('Upload failed: ' + error.message);
@@ -648,26 +592,15 @@ function setupQuestionForm() {
                 const formattedText = formatAIResponse(answerText, sources, chatId);
                 await streamText(streamingContainer, formattedText, 20);
                 
-                // Only add source indicator if there are actual source references in the formatted text
-                if (sources && sources.length > 0 && formattedText.includes('source-reference')) {
+                // Add a more informative source indicator showing how many sources are available
+                if (sources && sources.length > 0) {
                     const sourceIndicator = document.createElement('div');
                     sourceIndicator.className = 'sources-indicator';
                     sourceIndicator.innerHTML = `
                         <i class="fas fa-info-circle info-icon"></i>
                         <span class="source-count">${sources.length}</span>
-                        source${sources.length > 1 ? 's' : ''} available
-                        <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references above to view details</small>
-                    `;
-                    streamingContainer.appendChild(sourceIndicator);
-                } else if (sources && sources.length > 0) {
-                    // Show sources available but not referenced in text
-                    const sourceIndicator = document.createElement('div');
-                    sourceIndicator.className = 'sources-indicator';
-                    sourceIndicator.innerHTML = `
-                        <i class="fas fa-database info-icon"></i>
-                        <span class="source-count">${sources.length}</span>
-                        source document${sources.length > 1 ? 's' : ''} used for this answer
-                        <small style="margin-left: 8px; opacity: 0.8;">Information sourced from uploaded documents</small>
+                        source${sources.length > 1 ? 's' : ''} referenced above
+                        <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references to view details</small>
                     `;
                     streamingContainer.appendChild(sourceIndicator);
                 }
@@ -708,18 +641,14 @@ document.addEventListener('DOMContentLoaded', function() {
     setupUploadForm();
     setupQuestionForm();
     
-    // Add file input change listener for debugging
+    // Debug file input
     const fileInput = document.getElementById('fileInput');
     if (fileInput) {
         fileInput.addEventListener('change', function(e) {
-            console.log('Files selected:', e.target.files);
+            console.log('File input changed. Selected files:', e.target.files.length);
             for (let i = 0; i < e.target.files.length; i++) {
                 const file = e.target.files[i];
-                console.log(`File ${i + 1}:`, {
-                    name: file.name,
-                    type: file.type,
-                    size: file.size
-                });
+                console.log(`File ${i + 1}: ${file.name} (${file.type}) - ${(file.size / 1024).toFixed(1)}KB`);
             }
         });
     }

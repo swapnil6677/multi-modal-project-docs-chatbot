@@ -31,7 +31,7 @@ def main():
         app.logger.info("Application started successfully")
         
         # Run the application
-        app.run(debug=True, host='0.0.0.0', port=5001)
+        app.run(debug=True, host='0.0.0.0', port=5000)
         
     except Exception as e:
         logging.error(f"Failed to start application: {e}")

@@ -22,6 +22,9 @@ google-generativeai
 # PDF processing
 PyPDF2
 
+# Image processing and OCR
+Pillow
+
 # Utilities
 python-dotenv
 
