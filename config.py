@@ -33,9 +33,11 @@ class Config:
     PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY')
     
     # Pinecone settings
-    PINECONE_INDEX_NAME = os.environ.get('PINECONE_INDEX_NAME') or 'pdf-notes'
+    PINECONE_INDEX_NAME = os.environ.get('PINECONE_INDEX_NAME') or 'project-file-chatbot'
     PINECONE_ENVIRONMENT = os.environ.get('PINECONE_ENVIRONMENT') or 'aped-4627-b74a'
     PINECONE_HOST = os.environ.get('PINECONE_HOST')
+    PINECONE_CLOUD = "aws"  # Default to AWS cloud
+    PINECONE_REGION = "us-east-1"  # Default region for serverless
     
     # Logging
     LOG_LEVEL = os.environ.get('LOG_LEVEL') or 'INFO'

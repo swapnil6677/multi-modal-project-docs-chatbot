@@ -3,7 +3,7 @@ Application routes organized into blueprints
 """
 
 import logging
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, session
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, session, make_response
 from werkzeug.utils import secure_filename
 from app.models import db, User, Project, Document, ChatHistory
 from app.auth import authenticate_user, register_user, logout_user, login_required
@@ -35,9 +35,9 @@ def initialize_processors():
         # Try to initialize embedding processor
         try:
             embedding_processor = EmbeddingProcessor()
-            logger.info("Embedding processor initialized successfully")
+            logger.info("Embedding processor initialized successfully with model: %s", Config().EMBEDDING_MODEL)
         except Exception as e:
-            logger.warning(f"Embedding processor initialization failed: {e}")
+            logger.error(f"Embedding processor initialization failed: {e}", exc_info=True)
             logger.warning("Upload and question answering features will be disabled")
             embedding_processor = None
         
@@ -45,12 +45,15 @@ def initialize_processors():
         try:
             if embedding_processor:
                 pinecone_helper = PineconeHelper(embedding_processor.embedding_model)
-                logger.info("Pinecone helper initialized successfully")
+                logger.info("Pinecone helper initialized successfully with index: %s", Config().PINECONE_INDEX_NAME)
+                # Verify Pinecone connection
+                index_stats = pinecone_helper.get_namespace_stats("default")
+                logger.info("Pinecone connection verified. Index stats: %s", index_stats)
             else:
                 pinecone_helper = None
                 logger.warning("Pinecone helper not initialized due to missing embedding processor")
         except Exception as e:
-            logger.warning(f"Pinecone helper initialization failed: {e}")
+            logger.error(f"Pinecone helper initialization failed: {e}", exc_info=True)
             logger.warning("Vector storage features will be disabled")
             pinecone_helper = None
         
@@ -116,6 +119,19 @@ def initialize_processors():
 main_bp = Blueprint('main', __name__)
 auth_bp = Blueprint('auth', __name__)
 api_bp = Blueprint('api', __name__)
+
+# @api_bp.route('/debug/routes')
+# def list_routes():
+#     """Debug endpoint to list all registered routes"""
+#     from flask import current_app
+#     routes = []
+#     for rule in current_app.url_map.iter_rules():
+#         routes.append({
+#             'endpoint': rule.endpoint,
+#             'methods': list(rule.methods),
+#             'path': str(rule)
+#         })
+#     return jsonify(routes)
 
 # Main routes
 @main_bp.route('/')
@@ -237,6 +253,36 @@ def logout():
     flash('You have been logged out', 'info')
     return redirect(url_for('main.index'))
 
+# Debug route to check document details
+@api_bp.route('/debug/document/<filename>')
+@login_required
+def debug_document(filename):
+    try:
+        # Get the document from database
+        document = Document.query.filter_by(filename=filename).first()
+        
+        if not document:
+            return jsonify({
+                'error': 'Document not found',
+                'filename': filename
+            }), 404
+        
+        return jsonify({
+            'filename': document.filename,
+            'project_id': document.project_id,
+            'file_size': document.file_size,
+            'has_content': document.file_content is not None,
+            'content_size': len(document.file_content) if document.file_content else 0,
+            'page_count': document.page_count,
+            'chunk_count': document.chunk_count,
+            'uploaded_at': str(document.uploaded_at)
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'filename': filename
+        }), 500
+
 # API routes
 @api_bp.route('/projects/<int:project_id>/upload', methods=['POST'])
 @login_required
@@ -273,11 +319,15 @@ def upload_documents(project_id):
                 logger.info(f"Starting processing of {filename} for project {project_id}")
                 
                 try:
-                    # Save file to disk first
-                    file_path = file_processor.save_file(file)
+                    # Read file content
+                    file_content = file.read()
+                    file.seek(0)  # Reset file pointer to beginning
                     
                     # Process document (PDF or Image)
                     text, page_count, page_mapping = file_processor.process_file(file)
+                    
+                    # Save file content to temporary location for processing if needed
+                    file_path = file_processor.save_file(file)
                     chunks = embedding_processor.get_chunks(text)
                     
                     logger.info(f"Extracted text from {filename}: {len(text)} characters, {page_count} pages")
@@ -304,12 +354,29 @@ def upload_documents(project_id):
                     logger.info(f"Storing {filename} in Pinecone...")
                     
                     # Store in Pinecone with page mapping
+                    # Map each chunk to its corresponding page number
+                    chunk_pages = []
+                    for chunk in chunks:
+                        # Find which page this chunk belongs to
+                        chunk_start = text.find(chunk)
+                        chunk_end = chunk_start + len(chunk)
+                        
+                        # Find the page that contains this chunk
+                        for page_info in page_mapping:
+                            if (chunk_start >= page_info['start_pos'] and 
+                                chunk_start < page_info['end_pos']):
+                                chunk_pages.append(page_info['page_number'])
+                                break
+                        else:
+                            chunk_pages.append(1)  # Default to page 1 if not found
+                    
                     pinecone_helper.store_vectors(
                         chunks=chunks, 
                         namespace=project.namespace, 
                         filename=filename,
                         page_count=page_count,
-                        page_mapping=page_mapping
+                        page_mapping=page_mapping,
+                        chunk_pages=chunk_pages
                     )
                     
                     logger.info(f"Successfully stored {filename} in Pinecone")
@@ -318,10 +385,11 @@ def upload_documents(project_id):
                     document = Document(
                         filename=filename,
                         original_filename=filename,
-                        file_size=len(text),
+                        file_size=len(file_content),
                         file_hash=file_hash,
                         chunk_count=len(chunks),
                         page_count=page_count,
+                        file_content=file_content,
                         project_id=project.id
                     )
                     
@@ -461,14 +529,41 @@ def ask_question(project_id):
             answer = 'I could not find any relevant information in the uploaded documents to answer your question.'
         
         # Format sources
+        # sources = []
+        # for doc in retrieved_docs:
+        #     source_info = {
+        #         'content': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content,
+        #         'metadata': doc.metadata
+        #     }
+        #     sources.append(source_info)
+        from urllib.parse import urlencode
+
         sources = []
         for doc in retrieved_docs:
+            metadata = doc.metadata
+            filename = metadata.get('filename')  # Use the consistent filename field
+            page = metadata.get('page', 1)  # Use the consistent page field, default to 1
+            project_id = project.id
+
+            # Generate file view URL
+            query_params = urlencode({'filename': filename, 'project_id': project_id, 'page': page})
+            file_url = url_for('api.view_document_page', **{
+                'filename': filename,
+                'project_id': project_id,
+                'page': page
+            })
+
             source_info = {
                 'content': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content,
-                'metadata': doc.metadata
+                'file_name': metadata.get('filename'),  # Use filename from metadata
+                'page_number': metadata.get('page', 1),  # Use page from metadata, default to 1
+                'file_url': file_url,
+                'metadata': metadata
             }
             sources.append(source_info)
-        
+
+
+
         # Save chat history to database
         chat_history = ChatHistory(
             question=question,
@@ -481,7 +576,12 @@ def ask_question(project_id):
         db.session.commit()
         
         logger.info(f"Saved chat history for project {project_id}")
-        
+        print({
+            'answer': answer,
+            'sources': sources,
+            'question': question,
+            'chat_id': chat_history.id
+        })
         return jsonify({
             'answer': answer,
             'sources': sources,
@@ -521,94 +621,166 @@ def delete_project(project_id):
         logger.error(f"Error deleting project: {e}")
         return jsonify({'error': f'Error deleting project: {str(e)}'}), 500
 
-@main_bp.route('/view-document')
+
+from flask import current_app
+
+@api_bp.route('/view-document', methods=['GET'])
 @login_required
 def view_document():
-    """Serve documents for viewing"""
-    import os
-    from flask import send_file, abort
-    
+    from io import BytesIO
+    from flask import send_file, abort, current_app
+
+    filename = request.args.get('filename')
+    project_id = request.args.get('project_id')
+
+    current_app.logger.info(f"View document request: filename={filename}, project_id={project_id}")
+
+    if not filename or not project_id:
+        current_app.logger.error("Missing required parameters for view_document")
+        abort(400)
+        
     try:
-        filename = request.args.get('filename')
-        project_id = request.args.get('project_id')
-        
-        if not filename:
-            abort(400)
-        
-        # Security check: ensure user owns the project
-        if project_id:
-            project = Project.query.filter_by(
-                id=project_id, 
-                user_id=session['user_id']
-            ).first()
-            if not project:
-                abort(403)
-        
-        # Construct file path (assuming files are stored in uploads directory)
-        file_path = os.path.join('uploads', secure_filename(filename))
-        
-        if not os.path.exists(file_path):
+        # Get the document from database
+        document = Document.query.filter_by(
+            filename=filename,
+            project_id=project_id
+        ).first()
+
+        if not document:
+            current_app.logger.error(f"Document not found in database: {filename}")
             abort(404)
+
+        # Check user permission
+        project = Project.query.filter_by(id=project_id, user_id=session['user_id']).first()
+        if not project:
+            abort(403)
+
+        if not document.file_content:
+            current_app.logger.error(f"File content not found for document: {filename}")
+            abort(404)
+
+        # Create BytesIO object from file content stored in database
+        file_data = BytesIO(document.file_content)
+        file_data.seek(0)
+
+        # Set the correct mimetype
+        ext = filename.lower().rsplit('.', 1)[-1]
+        mimetypes = {'pdf': 'application/pdf', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+        mimetype = mimetypes.get(ext, 'application/octet-stream')
+
+        # Set cache control headers
+        headers = {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+
+        # return send_file(
+        #     file_data,
+        #     mimetype=mimetype,
+        #     as_attachment=False,
+        #     download_name=filename,
+        #     headers=headers
+        # )
         
-        # Determine mimetype based on file extension
-        if filename.lower().endswith('.pdf'):
-            mimetype = 'application/pdf'
-        elif filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            mimetype = 'image/' + filename.split('.')[-1].lower()
-            if mimetype == 'image/jpg':
-                mimetype = 'image/jpeg'
-        else:
-            mimetype = 'application/octet-stream'
-        
-        return send_file(file_path, mimetype=mimetype, as_attachment=False)
-        
+        response = make_response(send_file(
+            file_data,
+            mimetype=mimetype,
+            as_attachment=False,
+            download_name=filename
+        ))
+
+        # Add headers manually to response
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+
+        return response
+
     except Exception as e:
-        logger.error(f"Error serving document: {e}")
+        current_app.logger.error(f"Error serving document {filename}: {str(e)}")
         abort(500)
 
-@main_bp.route('/view-document-page')
+    # Get the document from database
+    document = Document.query.filter_by(
+        filename=filename,
+        project_id=project_id
+    ).first()
+
+    if not document:
+        current_app.logger.error(f"Document not found in database: {filename}")
+        abort(404)
+
+    # Check user permission
+    project = Project.query.filter_by(id=project_id, user_id=session['user_id']).first()
+    if not project:
+        abort(403)
+
+    if not document.file_content:
+        current_app.logger.error(f"File content not found for document: {filename}")
+        abort(404)
+
+    # Create BytesIO object from file content stored in database
+    file_data = BytesIO(document.file_content)
+    file_data.seek(0)
+
+    ext = filename.lower().rsplit('.', 1)[-1]
+    mimetypes = {'pdf': 'application/pdf', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+    mimetype = mimetypes.get(ext, 'application/octet-stream')
+
+    return send_file(file_data, mimetype=mimetype, as_attachment=False)
+
+
+@api_bp.route('/view-document-page', methods=['GET'])
 @login_required
 def view_document_page():
-    """Serve documents for viewing with page number for PDFs"""
-    import os
-    from flask import send_file, abort, redirect, url_for
-    
-    try:
-        filename = request.args.get('filename')
-        project_id = request.args.get('project_id')
-        page_number = request.args.get('page', '1')
-        
-        if not filename:
-            abort(400)
-        
-        # Security check: ensure user owns the project
-        if project_id:
-            project = Project.query.filter_by(
-                id=project_id, 
-                user_id=session['user_id']
-            ).first()
-            if not project:
-                abort(403)
-        
-        # Construct file path (assuming files are stored in uploads directory)
-        file_path = os.path.join('uploads', secure_filename(filename))
-        
-        if not os.path.exists(file_path):
-            abort(404)
-        
-        # For PDFs, we'll serve with page fragment identifier
-        if filename.lower().endswith('.pdf'):
-            # Create a temporary redirect URL with page fragment
-            # Most browsers support #page=N for PDFs
-            base_url = url_for('main.view_document', filename=filename, project_id=project_id)
-            return redirect(f"{base_url}#page={page_number}")
-        else:
-            # For images, just serve the file normally
-            mimetype = 'image/' + filename.split('.')[-1].lower()
-            if mimetype == 'image/jpg':
-                mimetype = 'image/jpeg'
-            return send_file(file_path, mimetype=mimetype, as_attachment=False)
-        
-    except Exception as e:
-        logger.error(f"Error serving document with page: {e}")
-        abort(500)
+    from io import BytesIO
+    from flask import abort, send_file, current_app
+
+    filename = request.args.get('filename')
+    project_id = request.args.get('project_id')
+    page_number = request.args.get('page', '1')
+
+    current_app.logger.info(f"Accessing document page: filename={filename}, project_id={project_id}, page={page_number}")
+
+    if not filename or not project_id:
+        current_app.logger.error(f"Missing required parameters: filename={filename}, project_id={project_id}")
+        abort(400)
+
+    # Get the document from database
+    document = Document.query.filter_by(
+        filename=filename,
+        project_id=project_id
+    ).first()
+
+    if not document:
+        current_app.logger.error(f"Document not found in database: {filename}")
+        abort(404)
+
+    # Check user permission
+    project = Project.query.filter_by(id=project_id, user_id=session['user_id']).first()
+    if not project:
+        abort(403)
+
+    if not document.file_content:
+        current_app.logger.error(f"File content not found for document: {filename}")
+        abort(404)
+
+    ext = filename.lower().rsplit('.', 1)[-1]
+    if ext == 'pdf':
+        # Create a template that embeds PDF viewer with the specific page
+        pdf_url = url_for('api.view_document', filename=filename, project_id=project_id)
+        logger.info(f"Generated PDF URL: {pdf_url}")
+        return render_template('pdf_viewer.html', 
+            pdf_url=pdf_url,
+            page=int(page_number),
+            filename=filename,
+            project_id=project_id)
+    else:
+        mimetypes = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+        mimetype = mimetypes.get(ext, 'application/octet-stream')
+
+        # Create BytesIO object from file content stored in database
+        file_data = BytesIO(document.file_content)
+        file_data.seek(0)
+        return send_file(file_data, mimetype=mimetype, as_attachment=False)

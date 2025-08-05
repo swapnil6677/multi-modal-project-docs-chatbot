@@ -82,6 +82,7 @@ class Document(db.Model):
     file_hash = db.Column(db.String(64))  # SHA256 hash for duplicate detection
     chunk_count = db.Column(db.Integer, default=0)
     page_count = db.Column(db.Integer, default=0)  # Total number of pages
+    file_content = db.Column(db.LargeBinary)  # Store the actual file content
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Foreign keys

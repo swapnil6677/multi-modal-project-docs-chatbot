@@ -67,61 +67,49 @@ class PineconeHelper:
             logger.error(f"Error ensuring index exists: {e}")
             raise
     
-    def store_vectors(self, chunks: List[str], namespace: str, filename: str = None, page_count: int = 0, page_mapping: List[dict] = None):
-        """Store text chunks as vectors in Pinecone with page information"""
-        logger.info(f"Storing {len(chunks)} vectors in namespace: {namespace}")
-        
+    def store_vectors(self, chunks: List[str], namespace: str, filename: str, page_count: int, page_mapping: List[Dict[str, Any]], chunk_pages: List[int]) -> None:
+        """Store text chunks as vectors in Pinecone"""
         try:
             if not self.embedding_model:
-                raise ValueError("Embedding model not initialized")
+                logger.error("Embedding model not initialized")
+                raise ValueError("Embedding model is required")
             
-            # Create documents with metadata
-            documents = []
-            current_pos = 0
+            if not chunks:
+                logger.warning(f"No chunks to store for file: {filename}")
+                return
             
-            for i, chunk in enumerate(chunks):
+            if len(chunks) != len(chunk_pages):
+                logger.error(f"Mismatch between chunks and chunk_pages lengths")
+                raise ValueError("Each chunk must have a corresponding page number")
+
+            logger.info(f"Creating embeddings for {len(chunks)} chunks")
+            embeddings = self.embedding_model.embed_documents(chunks)
+            
+            # Get index
+            index = self.pinecone_client.Index(self.config.PINECONE_INDEX_NAME)
+            
+            # Create metadata for each chunk
+            vectors_to_upsert = []
+            for i, (chunk, embedding, page_num) in enumerate(zip(chunks, embeddings, chunk_pages)):
                 metadata = {
-                    'chunk_id': i,
-                    'total_chunks': len(chunks),
-                    'namespace': namespace,
-                    'text': chunk  # Store the actual text for search
+                    'text': chunk,
+                    'filename': filename,
+                    'page_count': page_count,
+                    'page': page_num  # Store the actual page number for this chunk
                 }
-                
-                if filename:
-                    metadata['filename'] = filename
-                if page_count:
-                    metadata['page_count'] = page_count
-                
-                # Determine page number for this chunk
-                if page_mapping:
-                    # Find which page this chunk belongs to based on text position
-                    chunk_page = 1
-                    for page_info in page_mapping:
-                        if page_info['start_pos'] <= current_pos < page_info['end_pos']:
-                            chunk_page = page_info['page_number']
-                            break
-                    metadata['page_number'] = chunk_page
-                else:
-                    metadata['page_number'] = 1
-                
-                current_pos += len(chunk)
-                
-                doc = Document(page_content=chunk, metadata=metadata)
-                documents.append(doc)
+                vectors_to_upsert.append({
+                    'id': f"{filename}_{i}",
+                    'values': embedding,
+                    'metadata': metadata
+                })
             
-            # Store in Pinecone
-            vector_store = PineconeVectorStore.from_documents(
-                documents=documents,
-                embedding=self.embedding_model,
-                index_name=self.config.PINECONE_INDEX_NAME,
-                namespace=namespace
-            )
-            
-            logger.info(f"Successfully stored {len(chunks)} vectors in Pinecone")
-            return vector_store
+            # Batch upsert vectors
+            logger.info(f"Upserting {len(vectors_to_upsert)} vectors to namespace: {namespace}")
+            index.upsert(vectors=vectors_to_upsert, namespace=namespace)
+            logger.info("Vector storage complete")
             
         except Exception as e:
-            logger.error(f"Error storing vectors in Pinecone: {e}")
+            logger.error(f"Error storing vectors: {e}")
             raise
     
     def get_vector_store(self, namespace: str):

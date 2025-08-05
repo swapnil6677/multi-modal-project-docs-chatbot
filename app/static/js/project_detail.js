@@ -1,4 +1,5 @@
 // Project ID will be set by the template
+// let projectId;
 let projectId = window.projectId;
 
 // Store current sources for modal display
@@ -6,11 +7,66 @@ let currentSources = [];
 // Store all sources by chat ID for persistent access
 let allChatSources = {};
 
+// Function to handle PDF document viewing
+function openPdfDocument(fileName, pageNumber = 1, mode = 'page') {
+    try {
+        console.log(`Opening PDF: ${fileName}, Page: ${pageNumber}, Mode: ${mode}`);
+        
+        const params = new URLSearchParams({
+            filename: fileName,
+            project_id: projectId
+        });
+
+        if (mode === 'page') {
+            params.append('page', pageNumber);
+        }
+
+        const serverUrl = mode === 'page' 
+            ? `/api/view-document-page?${params.toString()}`
+            : `/api/view-document?${params.toString()}`;
+            
+        console.log(`Generated URL: ${serverUrl}`);
+        
+        const newWindow = window.open(serverUrl, '_blank');
+        if (!newWindow) {
+            alert('Please allow popups to view the document, or check your browser settings.');
+        }
+    } catch (error) {
+        console.error('Error opening PDF document:', error);
+        alert('Unable to open document. Please try again.');
+    }
+}
+
+// Function to open documents in a new window/tab
+function openDocument(documentPath, fileName, pageNumber = 1) {
+    try {
+        const fileExt = fileName.toLowerCase().split('.').pop();
+        
+        if (fileExt === 'pdf') {
+            openPdfDocument(fileName, pageNumber, 'page');
+        } else {
+            // For non-PDF files, use direct viewing
+            const params = new URLSearchParams({
+                filename: fileName,
+                project_id: projectId
+            });
+            
+            const serverUrl = `/api/view-document?${params.toString()}`;
+            const newWindow = window.open(serverUrl, '_blank');
+            
+            if (!newWindow) {
+                alert('Please allow popups to view the document, or check your browser settings.');
+            }
+        }
+    } catch (error) {
+        console.error('Error opening document:', error);
+        alert('Unable to open document. Please try again.');
+    }
+}
+
 // Markdown-like formatting function with source reference support
 function formatAIResponse(text, sources = [], chatId = null) {
     if (!text) return '';
-    
-    console.log('formatAIResponse called with:', { text: text.substring(0, 200), sourcesCount: sources.length, chatId });
     
     // Convert markdown to HTML
     let formatted = text
@@ -26,51 +82,12 @@ function formatAIResponse(text, sources = [], chatId = null) {
         .replace(/\n\n/g, '<\/p><p>')
         .replace(/\n/g, '<br>');
     
-    // Convert source references - handle multiple formats
-    
-    // Format 1: [Source X] -> clickable reference  
+    // Convert source references [Source X] to clickable numbered references
     formatted = formatted.replace(/\[Source (\d+)\]/g, function(match, num) {
-        const sourceIndex = parseInt(num) - 1;
+        const sourceIndex = num - 1;
         const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
         return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
     });
-    
-    // Format 2: [Source X, Y, Z] -> multiple clickable references
-    formatted = formatted.replace(/\[Source ([\d,\s]+)\]/g, function(match, nums) {
-        const numbers = nums.split(',').map(n => n.trim()).filter(n => n && !isNaN(n));
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        const references = numbers.map(num => {
-            const sourceIndex = parseInt(num) - 1;
-            return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-        });
-        return references.join(', ');
-    });
-    
-    // Format 3: [X] where X is just a number -> clickable reference
-    formatted = formatted.replace(/\[(\d+)\]/g, function(match, num) {
-        const sourceIndex = parseInt(num) - 1;
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-    });
-    
-    // Format 4: [X, Y, Z] -> multiple clickable references
-    formatted = formatted.replace(/\[([\d,\s]+)\]/g, function(match, nums) {
-        // Only process if it contains only numbers, commas, and spaces
-        if (!/^[\d,\s]+$/.test(nums)) return match;
-        
-        const numbers = nums.split(',').map(n => n.trim()).filter(n => n && !isNaN(n));
-        if (numbers.length === 0) return match;
-        
-        const chatIdAttr = chatId ? ` data-chat-id="${chatId}"` : '';
-        const references = numbers.map(num => {
-            const sourceIndex = parseInt(num) - 1;
-            return `<span class="source-reference" data-source-index="${sourceIndex}"${chatIdAttr} title="Click to view source"><strong>[${num}]</strong></span>`;
-        });
-        return references.join(', ');
-    });
-    
-    console.log('After source reference processing:', formatted.substring(0, 500));
-    console.log('Number of source-reference spans created:', (formatted.match(/source-reference/g) || []).length);
     
     // Wrap in paragraphs
     if (!formatted.includes('<h') && !formatted.includes('<li>')) {
@@ -78,8 +95,8 @@ function formatAIResponse(text, sources = [], chatId = null) {
     }
     
     // Wrap lists - Fixed regex escaping
-    formatted = formatted.replace(/(<li>.*?<\/li>)/g, '<ul>$1<\/ul>');
-    
+    // formatted = formatted.replace(/(<li>.*?<\/li>)/g, '<ul>$1<\/ul>');
+    formatted = formatted.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
     return formatted;
 }
 
@@ -114,19 +131,9 @@ function streamText(element, htmlContent, speed = 30) {
     });
 }
 
-// Initialize sources from chat history on page load
-function initializeChatSources() {
-    // Get sources data from the hidden data element
-    const sourcesData = document.getElementById('chat-sources-data');
-    if (sourcesData) {
-        try {
-            allChatSources = JSON.parse(sourcesData.textContent);
-            console.log('Initialized chat sources:', allChatSources);
-        } catch (e) {
-            console.error('Error parsing chat sources data:', e);
-        }
-    }
-}
+// Show source in modal - enhanced to work with persistent chat sources
+
+// Function to show source in modal follows
 
 // Show source in modal - enhanced to work with persistent chat sources
 function showSourceModal(sourceIndex, chatId = null) {
@@ -157,8 +164,9 @@ function showSourceModal(sourceIndex, chatId = null) {
     const source = sourcesToUse[sourceIndex];
     console.log('Selected source:', source);
     
-    const fileName = source.metadata?.file_name || source.metadata?.filename || `Document ${sourceIndex + 1}`;
+    const fileName = source.metadata?.filename || source.metadata?.file_name || `Document ${sourceIndex + 1}`;
     let content = source.page_content || source.content || 'No content available';
+    const pageNumber = source.metadata?.page || source.metadata?.page_number || null;
     
     // Fix content display issues - remove extra spaces between characters
     content = content.replace(/\s+/g, ' ').trim();
@@ -180,7 +188,7 @@ function showSourceModal(sourceIndex, chatId = null) {
     }
     
     const score = source.score ? (source.score * 100).toFixed(1) + '%' : '';
-    const documentPath = source.metadata?.source || source.metadata?.file_path || null;
+    const documentPath = `/api/view-document-page?filename=${encodeURIComponent(fileName)}&project_id=${projectId}&page=${pageNumber || 1}`;
     
     // Create modal HTML with improved styling and document access
     const modalHtml = `
@@ -194,6 +202,7 @@ function showSourceModal(sourceIndex, chatId = null) {
                                 <h5 class="modal-title mb-0">Source ${sourceIndex + 1}: ${fileName}</h5>
                                 <small class="text-muted">
                                     ${documentPath ? `📁 ${documentPath}` : 'Document excerpt'}
+                                    ${pageNumber ? ` • Page ${pageNumber}` : ''}
                                     ${score ? ` • ${score} relevance` : ''}
                                 </small>
                             </div>
@@ -206,13 +215,20 @@ function showSourceModal(sourceIndex, chatId = null) {
                                 <div class="p-4">
                                     <div class="d-flex justify-content-between align-items-center mb-3">
                                         <h6 class="text-muted mb-0">
-                                            <i class="fas fa-quote-left me-2"></i>Document Content
+                                            <i class="fas fa-quote-left me-2"></i>Document Excerpt
                                         </h6>
-                                        ${documentPath ? `
-                                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="openDocument('${documentPath}', '${fileName}')">
-                                                <i class="fas fa-external-link-alt me-1"></i>View Full Document
-                                            </button>
-                                        ` : ''}
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="openPdfDocument('${fileName}', ${pageNumber}, 'page')">
+                                            <i class="fas fa-external-link-alt me-1"></i>Open Page View
+                                        </button>
+                                        ${fileName.toLowerCase().endsWith('.pdf') ? `
+                                        <button type="button" class="btn btn-outline-primary btn-sm ms-2" onclick="openPdfDocument('${fileName}', ${pageNumber}, 'full')">
+                                            <i class="fas fa-file-pdf me-1"></i>View Full PDF
+                                        </button>` : ''}
+                                    </div>
+                                    
+                                    <div class="alert alert-info d-flex align-items-center mb-3">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        <small>This is a relevant excerpt from your document${pageNumber ? ` (Page ${pageNumber})` : ''}. Click "Open Original Document" above to view the specific location, or "View Full PDF" to see the entire document.</small>
                                     </div>
                                     
                                     <!-- Show text content -->
@@ -271,28 +287,7 @@ function showSourceModal(sourceIndex, chatId = null) {
     modal.show();
 }
 
-// Function to open the full document in a new window/tab
-function openDocument(documentPath, fileName) {
-    try {
-        // Try to construct a file URL for local documents
-        if (documentPath.startsWith('/') || documentPath.match(/^[A-Za-z]:/)) {
-            // Local file path - create file URL
-            const fileUrl = `file://${documentPath}`;
-            window.open(fileUrl, '_blank');
-        } else if (documentPath.startsWith('http://') || documentPath.startsWith('https://')) {
-            // Web URL - open directly
-            window.open(documentPath, '_blank');
-        } else {
-            // Relative path - try to open via server
-            const serverUrl = `/view-document?path=${encodeURIComponent(documentPath)}`;
-            window.open(serverUrl, '_blank');
-        }
-    } catch (error) {
-        console.error('Error opening document:', error);
-        // Fallback: show an alert with the document path
-        alert(`Document location: ${documentPath}\n\nPlease navigate to this location in your file manager to view the full document.`);
-    }
-}
+// Optional simplified source list is below
 
 // Create simplified source list (optional - for reference at bottom)
 function createSourcesList(sources) {
@@ -437,6 +432,19 @@ function createChatMessage(question, answer = null, isThinking = false) {
     `;
 }
 
+// Initialize chat sources from database
+function initializeChatSources() {
+    const sourcesData = document.getElementById('chat-sources-data');
+    if (sourcesData) {
+        try {
+            allChatSources = JSON.parse(sourcesData.textContent);
+            console.log('Initialized chat sources:', allChatSources);
+        } catch (e) {
+            console.error('Error parsing chat sources data:', e);
+        }
+    }
+}
+
 // Initialize the application
 function initializeApp() {
     // Initialize chat sources from database
@@ -518,33 +526,18 @@ function setupUploadForm() {
         uploadProgress.style.display = 'block';
         
         try {
-            console.log('Project ID:', projectId);
-            console.log('Upload URL:', `/api/projects/${projectId}/upload`);
-            
             const response = await fetch(`/api/projects/${projectId}/upload`, {
                 method: 'POST',
                 body: formData
             });
-            
-            console.log('Response status:', response.status);
-            console.log('Response headers:', response.headers);
             
             if (response.ok) {
                 const result = await response.json();
                 alert('Files uploaded successfully!');
                 location.reload(); // Refresh page to show new documents
             } else {
-                // Try to parse as JSON, fallback to text
-                let errorMessage;
-                try {
-                    const error = await response.json();
-                    errorMessage = error.error || error.message || 'Unknown error';
-                } catch (e) {
-                    const errorText = await response.text();
-                    console.log('Response text:', errorText);
-                    errorMessage = 'Server returned non-JSON response';
-                }
-                alert('Upload failed: ' + errorMessage);
+                const error = await response.json();
+                alert('Upload failed: ' + error.message);
             }
         } catch (error) {
             alert('Upload failed: ' + error.message);
@@ -648,26 +641,15 @@ function setupQuestionForm() {
                 const formattedText = formatAIResponse(answerText, sources, chatId);
                 await streamText(streamingContainer, formattedText, 20);
                 
-                // Only add source indicator if there are actual source references in the formatted text
-                if (sources && sources.length > 0 && formattedText.includes('source-reference')) {
+                // Add a more informative source indicator showing how many sources are available
+                if (sources && sources.length > 0) {
                     const sourceIndicator = document.createElement('div');
                     sourceIndicator.className = 'sources-indicator';
                     sourceIndicator.innerHTML = `
                         <i class="fas fa-info-circle info-icon"></i>
                         <span class="source-count">${sources.length}</span>
-                        source${sources.length > 1 ? 's' : ''} available
-                        <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references above to view details</small>
-                    `;
-                    streamingContainer.appendChild(sourceIndicator);
-                } else if (sources && sources.length > 0) {
-                    // Show sources available but not referenced in text
-                    const sourceIndicator = document.createElement('div');
-                    sourceIndicator.className = 'sources-indicator';
-                    sourceIndicator.innerHTML = `
-                        <i class="fas fa-database info-icon"></i>
-                        <span class="source-count">${sources.length}</span>
-                        source document${sources.length > 1 ? 's' : ''} used for this answer
-                        <small style="margin-left: 8px; opacity: 0.8;">Information sourced from uploaded documents</small>
+                        source${sources.length > 1 ? 's' : ''} referenced above
+                        <small style="margin-left: 8px; opacity: 0.8;">Click the numbered references to view details</small>
                     `;
                     streamingContainer.appendChild(sourceIndicator);
                 }
@@ -708,18 +690,14 @@ document.addEventListener('DOMContentLoaded', function() {
     setupUploadForm();
     setupQuestionForm();
     
-    // Add file input change listener for debugging
+    // Debug file input
     const fileInput = document.getElementById('fileInput');
     if (fileInput) {
         fileInput.addEventListener('change', function(e) {
-            console.log('Files selected:', e.target.files);
+            console.log('File input changed. Selected files:', e.target.files.length);
             for (let i = 0; i < e.target.files.length; i++) {
                 const file = e.target.files[i];
-                console.log(`File ${i + 1}:`, {
-                    name: file.name,
-                    type: file.type,
-                    size: file.size
-                });
+                console.log(`File ${i + 1}: ${file.name} (${file.type}) - ${(file.size / 1024).toFixed(1)}KB`);
             }
         });
     }
